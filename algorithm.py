@@ -122,7 +122,9 @@ def show_system_info():
 # Function to display information in a Text widget
 def display_in_text_widget(info):
     system_info_text.delete(1.0, tk.END)
-    system_info_text.insert(tk.END, info)
+    system_info_text.insert(tk.END, info) 
+
+    
 # Function to get memory information in GB
 def get_memory_info():
     memory_info = psutil.virtual_memory()
