@@ -4,52 +4,122 @@ import subprocess
 import tkinter as tk
 from tkinter import ttk, messagebox
 from tkinter.scrolledtext import ScrolledText
-import speedtest        # For checking Wi-Fi speed.
+import speedtest
 import socket
 import platform
-                                                                                                                                                                                                                                                                                                                                              
-# Functions for the application
+import GPUtil
+import openpyxl 
+
+
+# Function to write data to Excel
+def write_to_excel(sheet_name, data, file_name="system_data.xlsx"):
+    # Create a workbook and add a sheet
+    if not os.path.exists(file_name):
+        workbook = openpyxl.Workbook()
+        workbook.remove(workbook.active)
+    else:
+        workbook = openpyxl.load_workbook(file_name)
+
+    if sheet_name not in workbook.sheetnames:
+        worksheet = workbook.create_sheet(sheet_name)
+    else:
+        worksheet = workbook[sheet_name]
+
+    # Write the data to the sheet
+    for row_index, row in enumerate(data, start=1):
+        for col_index, value in enumerate(row, start=1):
+            worksheet.cell(row=row_index, column=col_index, value=value)
+
+    # Save the workbook
+    workbook.save(file_name)
+    messagebox.showinfo("Success", f"Data saved to {file_name} successfully!")
+
+
+# Functions for shutdown
 def shutdown():
     os.system("shutdown /s /t 1")
 
+
+# Function for restart
 def restart():
     os.system("shutdown /r /t 1")
 
-def show_system_info():
+
+# Function get system details
+def get_system_details(command):
+    """Helper function to run WMIC commands and fetch details."""
+    try:
+        result = subprocess.check_output(command, shell=True, universal_newlines=True)
+        return result.strip().split("\n")[-1]
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
+# Function to get basic system information
+def get_basic_info():
     pc_name = socket.gethostname()
     ip_address = socket.gethostbyname(pc_name)
     os_info = f"{platform.system()} {platform.release()}"
     processor_info = platform.processor()
+    username = os.getlogin()  # Logged-in username
+    return pc_name, ip_address, os_info, processor_info, username
 
-    info = (
+
+# Function to get additional system details using WMIC
+def get_additional_details():
+    serial_number = get_system_details("wmic bios get serialnumber")
+    system_model = get_system_details("wmic computersystem get model")
+    system_manufacturer = get_system_details("wmic computersystem get manufacturer")
+    return serial_number, system_model, system_manufacturer
+
+
+# Function to format system information for display
+def format_system_info(pc_name, username, ip_address, os_info, processor_info, serial_number, system_model, system_manufacturer):
+    return (
         f"PC Name: {pc_name}\n"
+        f"Username: {username}\n"
         f"IP Address: {ip_address}\n"
         f"Operating System: {os_info}\n"
         f"Processor: {processor_info}\n"
+        f"Serial Number: {serial_number}\n"
+        f"System Model: {system_model}\n"
+        f"System Manufacturer: {system_manufacturer}\n"
     )
+
+
+# Function to prepare system information for Excel
+def prepare_system_info_data(pc_name, username, ip_address, os_info, processor_info, serial_number, system_model, system_manufacturer):
+    return [
+        ["   System Information   "],
+        ["PC Name", pc_name],
+        ["Username", username],
+        ["IP Address", ip_address],
+        ["Operating System", os_info],
+        ["Processor", processor_info],
+        ["Serial Number", serial_number],
+        ["System Model", system_model],
+        ["System Manufacturer", system_manufacturer]
+    ]
+
+
+# Main function to collect and save system information
+def show_system_info():
+    # Get basic and additional details
+    pc_name, ip_address, os_info, processor_info, username = get_basic_info()
+    serial_number, system_model, system_manufacturer = get_additional_details()
+
+    # Format information for display
+    info = format_system_info(pc_name, username, ip_address, os_info, processor_info, serial_number, system_model, system_manufacturer)
     
+    # Display in the Text widget
+    display_in_text_widget(info)
+
+    # Prepare and save data for Excel
+    system_info_data = prepare_system_info_data(pc_name, username, ip_address, os_info, processor_info, serial_number, system_model, system_manufacturer)
+    write_to_excel("System Info", system_info_data)
+
+
+# Function to display information in a Text widget
+def display_in_text_widget(info):
     system_info_text.delete(1.0, tk.END)
     system_info_text.insert(tk.END, info)
-
-# GUI Setup
-root = tk.Tk()
-root.title("System Management Tool")
-root.geometry("600x500")
-
-# Buttons
-ttk.Button(root, text="Shutdown", command=shutdown).pack(pady=5)
-ttk.Button(root, text="Restart", command=restart).pack(pady=5)
-ttk.Button(root, text="Show System Info", command=show_system_info).pack(pady=5)
-# Text Box to Display Output
-system_info_text = ScrolledText(root, wrap=tk.WORD, width=70, height=15)
-system_info_text.pack(pady=10)
-
-# Run the application
-root.mainloop()
-
-
-
-
-
-
-
