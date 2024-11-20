@@ -122,7 +122,9 @@ def show_system_info():
 # Function to display information in a Text widget
 def display_in_text_widget(info):
     system_info_text.delete(1.0, tk.END)
-    system_info_text.insert(tk.END, info)
+    system_info_text.insert(tk.END, info) 
+
+    
 # Function to get memory information in GB
 def get_memory_info():
     memory_info = psutil.virtual_memory()
@@ -244,3 +246,154 @@ def check_resources():
 def display_in_text_widget(resource_info):
     system_info_text.delete(1.0, tk.END)
     system_info_text.insert(tk.END, resource_info)
+
+
+# Function for remove files
+def remove_temp_files():
+    temp_path = os.getenv('TEMP')
+    if not temp_path:
+        messagebox.showerror("Error", "TEMP environment variable not found!")
+        return
+    
+    try:
+        for root, dirs, files in os.walk(temp_path):
+            for file in files:
+                try:
+                    os.remove(os.path.join(root, file))
+                except PermissionError:
+                    messagebox.showwarning("Warning", f"Permission denied for {file}")
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to delete {file}: {str(e)}")
+        messagebox.showinfo("Success", "Temporary files removed successfully!")
+    except Exception as e:
+        messagebox.showerror("Error", str(e))
+
+
+# Function connected to wifi
+def is_connected_to_wifi():
+    """
+    Checks if the computer is connected to a Wi-Fi network.
+    Returns True if connected to Wi-Fi, False otherwise.
+    """
+    try:
+        result = subprocess.check_output("netsh wlan show interfaces", shell=True, encoding='utf-8')
+        if "State" in result and "connected" in result.lower():
+            return True
+        return False
+    except subprocess.CalledProcessError:
+        return False
+
+
+# Function to check if connected to Wi-Fi
+def is_connected_to_wifi():
+    try:
+        result = subprocess.check_output("netsh wlan show interfaces", shell=True, encoding='utf-8')
+        return "SSID" in result  # Check if SSID is present in the output
+    except subprocess.CalledProcessError:
+        return False
+
+
+# Function to perform the speed test
+def perform_speed_test():
+    try:
+        speed = speedtest.Speedtest()
+        speed.get_best_server()
+        download_speed = speed.download() / 1_000_000  # Convert to Mbps
+        upload_speed = speed.upload() / 1_000_000      # Convert to Mbps
+        return download_speed, upload_speed
+    except Exception as e:
+        raise RuntimeError(f"Speed test failed: {e}")
+
+
+# Function to display Wi-Fi speed test results
+def display_speed_results(download_speed, upload_speed):
+    speed_info = (
+        f"Wi-Fi Speed Test Results:\n"
+        f"Download Speed: {download_speed:.2f} Mbps\n"
+        f"Upload Speed: {upload_speed:.2f} Mbps\n"
+    )
+    system_info_text.delete(1.0, tk.END)
+    system_info_text.insert(tk.END, speed_info)
+
+
+# Main function to check Wi-Fi speed
+def check_wifi_speed():
+    try:
+        if not is_connected_to_wifi():
+            system_info_text.delete(1.0, tk.END)
+            system_info_text.insert(tk.END, "You are not connected to a Wi-Fi network.\n")
+            return
+        
+        download_speed, upload_speed = perform_speed_test()
+        display_speed_results(download_speed, upload_speed)
+    except Exception as e:
+        messagebox.showerror("Error", str(e))
+
+
+# Function to get the list of Wi-Fi profiles
+def get_wifi_profiles():
+    try:
+        result = subprocess.check_output("netsh wlan show profiles", shell=True, encoding='utf-8')
+        profiles = [line.split(":")[1].strip() for line in result.splitlines() if "All User Profile" in line]
+        return profiles
+    except subprocess.CalledProcessError:
+        return []
+
+
+# Function to retrieve the password for a specific Wi-Fi profile
+def get_wifi_password(profile):
+    try:
+        command = f"netsh wlan show profile \"{profile}\" key=clear"
+        profile_info = subprocess.check_output(command, shell=True, encoding='utf-8')
+        password_line = [line for line in profile_info.splitlines() if "Key Content" in line]
+        return password_line[0].split(":")[1].strip() if password_line else "None"
+    except subprocess.CalledProcessError:
+        return "Error retrieving password"
+
+
+# Function to retrieve and format Wi-Fi passwords
+def retrieve_wifi_passwords():
+    try:
+        profiles = get_wifi_profiles()
+        
+        if not profiles:
+            system_info_text.delete(1.0, tk.END)
+            system_info_text.insert(tk.END, "No Wi-Fi profiles found.")
+            return
+        
+        passwords = []
+        for profile in profiles:
+            password = get_wifi_password(profile)
+            passwords.append(f"Wi-Fi: {profile}\nPassword: {password}\n")
+        
+        # Display in the Tkinter Text widget
+        wifi_info = "\n".join(passwords)
+        system_info_text.delete(1.0, tk.END)
+        system_info_text.insert(tk.END, wifi_info)
+    except Exception as e:
+        messagebox.showerror("Error", f"An error occurred: {str(e)}")
+
+
+# GUI Setup
+root = tk.Tk()
+root.title("System Management Tool")
+root.geometry("600x500")
+
+
+# Buttons
+ttk.Button(root, text="Shutdown", command=shutdown).pack(pady=5)
+ttk.Button(root, text="Restart", command=restart).pack(pady=5)
+ttk.Button(root, text="Show System Info", command=show_system_info).pack(pady=5)
+ttk.Button(root, text="Check Resources", command=check_resources).pack(pady=5)
+ttk.Button(root, text="Remove Temp Files", command=remove_temp_files).pack(pady=5)
+ttk.Button(root, text="Check Wi-Fi Speed", command=check_wifi_speed).pack(pady=5)
+ttk.Button(root, text="Retrieve Wi-Fi Passwords", command=retrieve_wifi_passwords).pack(pady=5)
+
+
+# Text Box to Display Output
+system_info_text = ScrolledText(root, wrap=tk.WORD, width=70, height=15)
+system_info_text.pack(pady=10)
+
+
+# Run the application
+root.mainloop()
