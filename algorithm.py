@@ -13,9 +13,7 @@ import openpyxl
 import getpass
 import wmi  
 import math
-import tempfile
 import subprocess
-import shutil
 from tkinter import messagebox
 
 
@@ -132,17 +130,27 @@ def get_system_info():
 
     return system_info
 
-
-# Function to check Wi-Fi speed
-def check_wifi_speed():
+# Function to Test Wi-Fi Speed
+def test_wifi_speed():
+    wifi_speed = None
     try:
-        speed = speedtest.Speedtest()
-        speed.get_best_server()
-        download = speed.download() / 1_000_000
-        upload = speed.upload() / 1_000_000
-        return f"Download: {download:.2f} Mbps\nUpload: {upload:.2f} Mbps"
+        st = speedtest.Speedtest()
+        st.get_best_server()
+        download_speed = st.download() / 1_000_000  # Convert to Mbps
+        upload_speed = st.upload() / 1_000_000  # Convert to Mbps
+        ping = st.results.ping
+        wifi_speed = f"Download: {download_speed:.2f} Mbps\nUpload: {upload_speed:.2f} Mbps\nPing: {ping} ms"
     except Exception as e:
-        return f"Error: {e}"
+        wifi_speed = f"Error testing speed: {e}"
+
+    return wifi_speed
+
+
+# Display Wi-Fi Speed Test Results
+def display_wifi_speed():
+    speed = test_wifi_speed()
+    wifi_file_text.delete(1.0, tk.END)  # Clear the text box
+    wifi_file_text.insert(tk.END, speed)
 
 
 # Retrieve Wi-Fi Passwords (Windows Only)
@@ -187,18 +195,6 @@ def remove_temp_files():
         messagebox.showinfo("Success", "Temporary files removed successfully!")
     except Exception as e:
         messagebox.showerror("Error", str(e))
-
-
-# Wi-Fi Speed Test
-def check_wifi_speed():
-    try:
-        speed = speedtest.Speedtest()
-        speed.get_best_server()
-        download = speed.download() / 1_000_000
-        upload = speed.upload() / 1_000_000
-        return f"Download: {download:.2f} Mbps\nUpload: {upload:.2f} Mbps"
-    except Exception as e:
-        return f"Error: {e}"
 
 
 # Shutdown and Restart
@@ -299,8 +295,8 @@ wifi_file_text = ScrolledText(wifi_file_tab, wrap=tk.WORD, height=15, font=("Hel
 wifi_file_text.pack(fill=tk.BOTH, padx=10, pady=10, expand=True)
 
 # Add buttons for retrieving Wi-Fi passwords, checking Wi-Fi speed, and removing temporary files
+ttk.Button(wifi_file_tab, text="Wi-Fi Speed Test", command=lambda: threading.Thread(target=display_wifi_speed).start()).pack(pady=10, fill=tk.X)
 ttk.Button(wifi_file_tab, text="Retrieve Wi-Fi Passwords", command=lambda: threading.Thread(target=display_wifi_passwords).start()).pack(pady=10, fill=tk.X)
-ttk.Button(wifi_file_tab, text="Check Wi-Fi Speed", command=lambda: threading.Thread(target=lambda: messagebox.showinfo("Wi-Fi Speed", check_wifi_speed())).start()).pack(pady=10, fill=tk.X)
 ttk.Button(wifi_file_tab, text="Remove Temp Files", command=lambda: threading.Thread(target=handle_remove_temp_files).start()).pack(pady=10, fill=tk.X)
 
 # Display Wi-Fi Passwords function
