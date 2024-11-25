@@ -1,19 +1,26 @@
 import os
 import psutil
-import subprocess
 import tkinter as tk
 from tkinter import ttk, messagebox
 from tkinter.scrolledtext import ScrolledText
+import threading
 import speedtest
-import socket
 import platform
-import GPUtil
-import openpyxl 
+import socket
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import openpyxl
+import getpass
+import wmi  
+import math
+import tempfile
+import subprocess
+import shutil
+from tkinter import messagebox
 
 
 # Function to write data to Excel
 def write_to_excel(sheet_name, data, file_name="system_data.xlsx"):
-    # Create a workbook and add a sheet
     if not os.path.exists(file_name):
         workbook = openpyxl.Workbook()
         workbook.remove(workbook.active)
@@ -25,228 +32,141 @@ def write_to_excel(sheet_name, data, file_name="system_data.xlsx"):
     else:
         worksheet = workbook[sheet_name]
 
-    # Write the data to the sheet
     for row_index, row in enumerate(data, start=1):
         for col_index, value in enumerate(row, start=1):
             worksheet.cell(row=row_index, column=col_index, value=value)
 
-    # Save the workbook
     workbook.save(file_name)
     messagebox.showinfo("Success", f"Data saved to {file_name} successfully!")
 
 
-# Functions for shutdown
-def shutdown():
-    os.system("shutdown /s /t 1")
-
-
-# Function for restart
-def restart():
-    os.system("shutdown /r /t 1")
-
-
-# Function get system details
-def get_system_details(command):
-    """Helper function to run WMIC commands and fetch details."""
+# Helper function to safely get attributes with a default fallback
+def get_attribute(obj, attr, default='N/A'):
     try:
-        result = subprocess.check_output(command, shell=True, universal_newlines=True)
-        return result.strip().split("\n")[-1]
+        return getattr(obj, attr, default)
+    except AttributeError:
+        return default
+
+# Helper function to get hardware details with error handling
+def get_hardware_info():
+    hardware_info = {}
+    w = wmi.WMI()
+
+    try:
+        system_info = w.Win32_ComputerSystem()[0]
+        hardware_info['serial_number'] = get_attribute(system_info, 'SerialNumber')
+        hardware_info['system_model'] = get_attribute(system_info, 'Model')
+        hardware_info['system_manufacturer'] = get_attribute(system_info, 'Manufacturer')
     except Exception as e:
-        return f"Error: {str(e)}"
+        print(f"Error retrieving system information: {e}")
+    
+    # Check BIOS for serial number if not found in system info
+    if hardware_info.get('serial_number') == 'N/A':
+        try:
+            bios_info = w.Win32_BIOS()[0]
+            hardware_info['serial_number'] = get_attribute(bios_info, 'SerialNumber')
+        except Exception as e:
+            print(f"Error retrieving BIOS information: {e}")
+    
+    return hardware_info
 
+# Helper function to get system resource details
+def get_system_resources():
+    resources = {}
 
-# Function to get basic system information
-def get_basic_info():
+    # Get CPU info
+    cpu_info = psutil.cpu_percent(interval=1, percpu=True)
+    resources['cpu_total_cores'] = psutil.cpu_count(logical=False)  # Total physical cores
+    
+    # Round up the number of cores in use and free cores (this is typically an integer but rounded for your request)
+    resources['cpu_cores_in_use'] = math.ceil(sum(1 for usage in cpu_info if usage > 0))  # Cores in use
+    resources['cpu_free_cores'] = math.ceil(resources['cpu_total_cores'] - resources['cpu_cores_in_use'])  # Free cores
+
+    # Get memory info and round up the values
+    memory_info = psutil.virtual_memory()
+    resources['memory_total'] = math.ceil(memory_info.total / (1024 ** 3))  # Convert to GB and round up
+    resources['memory_used'] = math.ceil(memory_info.used / (1024 ** 3))  # Convert to GB and round up
+    resources['memory_free'] = math.ceil(memory_info.free / (1024 ** 3))  # Convert to GB and round up
+
+    # Get disk info and round up the values
+    disk_info = psutil.disk_usage('/')
+    resources['disk_total'] = math.ceil(disk_info.total / (1024 ** 3))  # Convert to GB and round up
+    resources['disk_used'] = math.ceil(disk_info.used / (1024 ** 3))  # Convert to GB and round up
+    resources['disk_free'] = math.ceil(disk_info.free / (1024 ** 3))  # Convert to GB and round up
+
+    return resources
+
+# Main function to get system info
+def get_system_info():
+    # Get basic system info
     pc_name = socket.gethostname()
     ip_address = socket.gethostbyname(pc_name)
     os_info = f"{platform.system()} {platform.release()}"
-    processor_info = platform.processor()
-    username = os.getlogin()  # Logged-in username
-    return pc_name, ip_address, os_info, processor_info, username
+    username = getpass.getuser()
 
+    # Get hardware details (using helper function)
+    hardware_info = get_hardware_info()
 
-# Function to get additional system details using WMIC
-def get_additional_details():
-    serial_number = get_system_details("wmic bios get serialnumber")
-    system_model = get_system_details("wmic computersystem get model")
-    system_manufacturer = get_system_details("wmic computersystem get manufacturer")
-    return serial_number, system_model, system_manufacturer
+    # Get system resource details (using helper function)
+    resource_info = get_system_resources()
 
-
-# Function to format system information for display
-def format_system_info(pc_name, username, ip_address, os_info, processor_info, serial_number, system_model, system_manufacturer):
-    return (
-        f"PC Name: {pc_name}\n"
-        f"Username: {username}\n"
-        f"IP Address: {ip_address}\n"
-        f"Operating System: {os_info}\n"
-        f"Processor: {processor_info}\n"
-        f"Serial Number: {serial_number}\n"
-        f"System Model: {system_model}\n"
-        f"System Manufacturer: {system_manufacturer}\n"
-    )
-
-
-# Function to prepare system information for Excel
-def prepare_system_info_data(pc_name, username, ip_address, os_info, processor_info, serial_number, system_model, system_manufacturer):
-    return [
-        ["   System Information   "],
+    # Construct the system info list
+    system_info = [
         ["PC Name", pc_name],
         ["Username", username],
         ["IP Address", ip_address],
         ["Operating System", os_info],
-        ["Processor", processor_info],
-        ["Serial Number", serial_number],
-        ["System Model", system_model],
-        ["System Manufacturer", system_manufacturer]
+        ["Serial Number", hardware_info.get('serial_number', 'N/A')],
+        ["System Model", hardware_info.get('system_model', 'N/A')],
+        ["System Manufacturer", hardware_info.get('system_manufacturer', 'N/A')],
+        ["CPU Total Cores", resource_info['cpu_total_cores']],
+        ["CPU Cores In Use", resource_info['cpu_cores_in_use']],
+        ["CPU Free Cores", resource_info['cpu_free_cores']],
+        ["Memory (Total)", f"{resource_info['memory_total']} GB"],
+        ["Memory (Used)", f"{resource_info['memory_used']} GB"],
+        ["Memory (Free)", f"{resource_info['memory_free']} GB"],
+        ["Disk (Total)", f"{resource_info['disk_total']} GB"],
+        ["Disk (Used)", f"{resource_info['disk_used']} GB"],
+        ["Disk (Free)", f"{resource_info['disk_free']} GB"],
     ]
 
+    return system_info
 
-# Main function to collect and save system information
-def show_system_info():
-    # Get basic and additional details
-    pc_name, ip_address, os_info, processor_info, username = get_basic_info()
-    serial_number, system_model, system_manufacturer = get_additional_details()
 
-    # Format information for display
-    info = format_system_info(pc_name, username, ip_address, os_info, processor_info, serial_number, system_model, system_manufacturer)
+# Function to check Wi-Fi speed
+def check_wifi_speed():
+    try:
+        speed = speedtest.Speedtest()
+        speed.get_best_server()
+        download = speed.download() / 1_000_000
+        upload = speed.upload() / 1_000_000
+        return f"Download: {download:.2f} Mbps\nUpload: {upload:.2f} Mbps"
+    except Exception as e:
+        return f"Error: {e}"
+
+
+# Retrieve Wi-Fi Passwords (Windows Only)
+def get_wifi_passwords():
+    wifi_passwords = []
     
-    # Display in the Text widget
-    display_in_text_widget(info)
+    try:
+        profiles = subprocess.check_output("netsh wlan show profiles").decode("utf-8", errors="backslashreplace").split('\n')
+        profile_names = [i.split(":")[1][1:-1] for i in profiles if "All User Profile" in i]
 
-    # Prepare and save data for Excel
-    system_info_data = prepare_system_info_data(pc_name, username, ip_address, os_info, processor_info, serial_number, system_model, system_manufacturer)
-    write_to_excel("System Info", system_info_data)
-
-
-# Function to display information in a Text widget
-def display_in_text_widget(info):
-    system_info_text.delete(1.0, tk.END)
-    system_info_text.insert(tk.END, info) 
-
+        for profile in profile_names:
+            try:
+                password_info = subprocess.check_output(f'netsh wlan show profile "{profile}" key=clear', shell=True).decode("utf-8", errors="backslashreplace")
+                password = [i.split(":")[1][1:-1] for i in password_info.split("\n") if "Key Content" in i]
+                if password:
+                    wifi_passwords.append((profile, password[0]))
+            except subprocess.CalledProcessError:
+                wifi_passwords.append((profile, "No password set"))
     
-# Function to get memory information in GB
-def get_memory_info():
-    memory_info = psutil.virtual_memory()
-    total_memory = round(memory_info.total / (1024 ** 3), 2)  
-    used_memory = round(memory_info.used / (1024 ** 3), 2) 
-    free_memory = round(memory_info.available / (1024 ** 3), 2)  
-    return total_memory, used_memory, free_memory
-
-
-# Function to get disk information in GB
-def get_disk_info():
-    disk_usage = psutil.disk_usage('/')
-    total_disk = round(disk_usage.total / (1024 ** 3), 2)  
-    used_disk = round(disk_usage.used / (1024 ** 3), 2)  
-    free_disk = round(disk_usage.free / (1024 ** 3), 2)  
-    return total_disk, used_disk, free_disk
-
-
-# Function to get CPU information
-def get_cpu_info():
-    cpu_total = psutil.cpu_count(logical=True)  # Total number of logical CPUs
-    cpu_usage_count = round((cpu_total * psutil.cpu_percent(interval=1)) / 100, 2)  # Cores in use
-    cpu_free_count = round(cpu_total - cpu_usage_count, 2)  # Available cores
-    return cpu_total, cpu_usage_count, cpu_free_count
-
-
-# Function to get GPU information with memory in GB
-def get_gpu_info():
-    gpus = GPUtil.getGPUs()
-    gpu_info = []
-    if gpus:
-        for gpu in gpus:
-            gpu_info.append({
-                "name": gpu.name,
-                "total_memory": round(gpu.memoryTotal / 1024, 2), 
-                "used_memory": round(gpu.memoryUsed / 1024, 2),   
-                "free_memory": round(gpu.memoryFree / 1024, 2),   
-                "load": gpu.load * 100  # GPU load percentage
-            })
-    return gpu_info
-
-
-# Function to prepare GPU info text
-def format_gpu_info(gpu_info):
-    if gpu_info:
-        gpu_info_text = ""
-        for gpu in gpu_info:
-            gpu_info_text += (
-                f"GPU: {gpu['name']}\n"
-                f"  Total Memory: {gpu['total_memory']} GB\n"
-                f"  Used Memory: {gpu['used_memory']} GB\n"
-                f"  Free Memory: {gpu['free_memory']} GB\n"
-                f"  GPU Load: {gpu['load']:.2f}%\n"
-            )
-    else:
-        gpu_info_text = "No GPU detected.\n"
-    return gpu_info_text
-
-
-# Function to prepare resource data for Excel
-def prepare_excel_data(cpu_total, cpu_usage_count, cpu_free_count, total_memory, used_memory, free_memory, total_disk, used_disk, free_disk, gpu_info):
-    resource_data = [
-        ["   Resource Information   "],
-        ["CPU Total Cores", cpu_total],
-        ["CPU Cores In Use", cpu_usage_count],
-        ["CPU Free Cores", cpu_free_count],
-        ["Memory (Total)", f"{total_memory} GB"],
-        ["Memory (Used)", f"{used_memory} GB"],
-        ["Memory (Free)", f"{free_memory} GB"],
-        ["Disk (Total)", f"{total_disk} GB"],
-        ["Disk (Used)", f"{used_disk} GB"],
-        ["Disk (Free)", f"{free_disk} GB"],
-    ]
-    if gpu_info:
-        for gpu in gpu_info:
-            resource_data.append([f"GPU {gpu['name']} Load", f"{gpu['load']:.2f}%"])
-            resource_data.append([f"GPU {gpu['name']} Total Memory", f"{gpu['total_memory']} GB"])
-            resource_data.append([f"GPU {gpu['name']} Used Memory", f"{gpu['used_memory']} GB"])
-            resource_data.append([f"GPU {gpu['name']} Free Memory", f"{gpu['free_memory']} GB"])
-    return resource_data
-
-
-# Main function to combine all resources
-def check_resources():
-    total_memory, used_memory, free_memory = get_memory_info()
-    total_disk, used_disk, free_disk = get_disk_info()
-    cpu_total, cpu_usage_count, cpu_free_count = get_cpu_info()
-    gpu_info = get_gpu_info()
-
-    # Format GPU info text
-    gpu_info_text = format_gpu_info(gpu_info)
-
-    # Combine all information for display
-    resource_info = (
-        f"CPU:\n"
-        f"  Total Cores: {cpu_total}\n"
-        f"  In Use: {cpu_usage_count} Cores\n"
-        f"  Free: {cpu_free_count} Cores\n\n"
-        f"Memory (RAM):\n"
-        f"  Total: {total_memory} GB\n"
-        f"  Used: {used_memory} GB\n"
-        f"  Free: {free_memory} GB\n\n"
-        f"Disk (Hard Disk):\n"
-        f"  Total: {total_disk} GB\n"
-        f"  Used: {used_disk} GB\n"
-        f"  Free: {free_disk} GB\n\n"
-        f"{gpu_info_text}"
-    )
-
-    # Display in Text widget
-    display_in_text_widget(resource_info)
-
-    # Prepare and save data to Excel
-    resource_data = prepare_excel_data(cpu_total, cpu_usage_count, cpu_free_count, total_memory, used_memory, free_memory, total_disk, used_disk, free_disk, gpu_info)
-    write_to_excel("Resource Info", resource_data)
-
-
-# Function to display resource info in a Text widget
-def display_in_text_widget(resource_info):
-    system_info_text.delete(1.0, tk.END)
-    system_info_text.insert(tk.END, resource_info)
-
+        if not wifi_passwords:
+            return "No Wi-Fi profiles found."
+        return wifi_passwords
+    except Exception as e:
+        return f"Error retrieving Wi-Fi passwords: {e}"
 
 # Function for remove files
 def remove_temp_files():
@@ -269,131 +189,145 @@ def remove_temp_files():
         messagebox.showerror("Error", str(e))
 
 
-# Function connected to wifi
-def is_connected_to_wifi():
-    """
-    Checks if the computer is connected to a Wi-Fi network.
-    Returns True if connected to Wi-Fi, False otherwise.
-    """
-    try:
-        result = subprocess.check_output("netsh wlan show interfaces", shell=True, encoding='utf-8')
-        if "State" in result and "connected" in result.lower():
-            return True
-        return False
-    except subprocess.CalledProcessError:
-        return False
-
-
-# Function to check if connected to Wi-Fi
-def is_connected_to_wifi():
-    try:
-        result = subprocess.check_output("netsh wlan show interfaces", shell=True, encoding='utf-8')
-        return "SSID" in result  # Check if SSID is present in the output
-    except subprocess.CalledProcessError:
-        return False
-
-
-# Function to perform the speed test
-def perform_speed_test():
+# Wi-Fi Speed Test
+def check_wifi_speed():
     try:
         speed = speedtest.Speedtest()
         speed.get_best_server()
-        download_speed = speed.download() / 1_000_000  # Convert to Mbps
-        upload_speed = speed.upload() / 1_000_000      # Convert to Mbps
-        return download_speed, upload_speed
+        download = speed.download() / 1_000_000
+        upload = speed.upload() / 1_000_000
+        return f"Download: {download:.2f} Mbps\nUpload: {upload:.2f} Mbps"
     except Exception as e:
-        raise RuntimeError(f"Speed test failed: {e}")
+        return f"Error: {e}"
 
 
-# Function to display Wi-Fi speed test results
-def display_speed_results(download_speed, upload_speed):
-    speed_info = (
-        f"Wi-Fi Speed Test Results:\n"
-        f"Download Speed: {download_speed:.2f} Mbps\n"
-        f"Upload Speed: {upload_speed:.2f} Mbps\n"
-    )
-    system_info_text.delete(1.0, tk.END)
-    system_info_text.insert(tk.END, speed_info)
+# Shutdown and Restart
+def shutdown():
+    os.system("shutdown /s /t 1")
 
 
-# Main function to check Wi-Fi speed
-def check_wifi_speed():
-    try:
-        if not is_connected_to_wifi():
-            system_info_text.delete(1.0, tk.END)
-            system_info_text.insert(tk.END, "You are not connected to a Wi-Fi network.\n")
-            return
-        
-        download_speed, upload_speed = perform_speed_test()
-        display_speed_results(download_speed, upload_speed)
-    except Exception as e:
-        messagebox.showerror("Error", str(e))
+def restart():
+    os.system("shutdown /r /t 1")
 
 
-# Function to get the list of Wi-Fi profiles
-def get_wifi_profiles():
-    try:
-        result = subprocess.check_output("netsh wlan show profiles", shell=True, encoding='utf-8')
-        profiles = [line.split(":")[1].strip() for line in result.splitlines() if "All User Profile" in line]
-        return profiles
-    except subprocess.CalledProcessError:
-        return []
+# Update Real-Time Graphs
+def update_graphs():
+    global cpu_data, memory_data, disk_data
+    cpu_data.append(psutil.cpu_percent())
+    memory_data.append(psutil.virtual_memory().percent)
+    disk_data.append(psutil.disk_usage('/').percent)
+    
+    if len(cpu_data) > 50:
+        cpu_data.pop(0)
+        memory_data.pop(0)
+        disk_data.pop(0)
+
+    cpu_line.set_ydata(cpu_data)
+    mem_line.set_ydata(memory_data)
+    disk_line.set_ydata(disk_data)
+
+    canvas.draw()
+    root.after(1000, update_graphs)
 
 
-# Function to retrieve the password for a specific Wi-Fi profile
-def get_wifi_password(profile):
-    try:
-        command = f"netsh wlan show profile \"{profile}\" key=clear"
-        profile_info = subprocess.check_output(command, shell=True, encoding='utf-8')
-        password_line = [line for line in profile_info.splitlines() if "Key Content" in line]
-        return password_line[0].split(":")[1].strip() if password_line else "None"
-    except subprocess.CalledProcessError:
-        return "Error retrieving password"
-
-
-# Function to retrieve and format Wi-Fi passwords
-def retrieve_wifi_passwords():
-    try:
-        profiles = get_wifi_profiles()
-        
-        if not profiles:
-            system_info_text.delete(1.0, tk.END)
-            system_info_text.insert(tk.END, "No Wi-Fi profiles found.")
-            return
-        
-        passwords = []
-        for profile in profiles:
-            password = get_wifi_password(profile)
-            passwords.append(f"Wi-Fi: {profile}\nPassword: {password}\n")
-        
-        # Display in the Tkinter Text widget
-        wifi_info = "\n".join(passwords)
-        system_info_text.delete(1.0, tk.END)
-        system_info_text.insert(tk.END, wifi_info)
-    except Exception as e:
-        messagebox.showerror("Error", f"An error occurred: {str(e)}")
+# Alert for High CPU Usage
+def check_alerts():
+    cpu_usage = psutil.cpu_percent()
+    memory_usage = psutil.virtual_memory().percent
+    disk_usage = psutil.disk_usage('/').percent
+    
+    if cpu_usage > 80:
+        messagebox.showwarning("Alert", f"High CPU Usage: {cpu_usage}%")
+    if memory_usage > 85:
+        messagebox.showwarning("Alert", f"High Memory Usage: {memory_usage}%")
+    if disk_usage > 90:
+        messagebox.showwarning("Alert", f"High Disk Usage: {disk_usage}%")
+    
+    root.after(5000, check_alerts)
 
 
 # GUI Setup
 root = tk.Tk()
-root.title("System Management Tool")
-root.geometry("600x500")
+root.title("Enhanced System Monitoring Tool")
+root.geometry("900x650")
+root.configure(bg="#f0f0f0")  # Light gray background
+
+# Set up style for widgets
+style = ttk.Style()
+style.configure("TButton", font=("Helvetica", 12), padding=6)
+style.configure("TLabel", font=("Helvetica", 14, "bold"))
+style.configure("TNotebook.Tab", font=("Helvetica", 12))
+
+notebook = ttk.Notebook(root)
+notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+# Tab 1: Real-Time Monitoring
+monitor_tab = ttk.Frame(notebook)
+notebook.add(monitor_tab, text="Real-Time Monitoring")
+
+fig, ax = plt.subplots(figsize=(5, 3))
+cpu_data, memory_data, disk_data = [0] * 50, [0] * 50, [0] * 50
+
+cpu_line, = ax.plot(cpu_data, label="CPU Usage (%)")
+mem_line, = ax.plot(memory_data, label="Memory Usage (%)")
+disk_line, = ax.plot(disk_data, label="Disk Usage (%)")
+
+ax.set_ylim(0, 100)
+ax.set_title("Real-Time System Resource Monitoring", fontsize=16, fontweight='bold')
+ax.legend(loc="upper right")
+canvas = FigureCanvasTkAgg(fig, master=monitor_tab)
+canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+# Tab 2: System Info
+info_tab = ttk.Frame(notebook)
+notebook.add(info_tab, text="System Info")
+
+info_text = ScrolledText(info_tab, wrap=tk.WORD, height=15, font=("Helvetica", 12), bg="#f7f7f7")
+info_text.pack(fill=tk.BOTH, padx=10, pady=10, expand=True)
+
+ttk.Button(info_tab, text="Refresh Info", command=lambda: info_text.insert(
+    tk.END, "\n".join([f"{k}: {v}" for k, v in get_system_info()]) + "\n")).pack(pady=10, fill=tk.X)
+
+ttk.Button(info_tab, text="Export to Excel", command=lambda: write_to_excel("System Info", get_system_info())).pack(pady=5, fill=tk.X)
 
 
-# Buttons
-ttk.Button(root, text="Shutdown", command=shutdown).pack(pady=5)
-ttk.Button(root, text="Restart", command=restart).pack(pady=5)
-ttk.Button(root, text="Show System Info", command=show_system_info).pack(pady=5)
-ttk.Button(root, text="Check Resources", command=check_resources).pack(pady=5)
-ttk.Button(root, text="Remove Temp Files", command=remove_temp_files).pack(pady=5)
-ttk.Button(root, text="Check Wi-Fi Speed", command=check_wifi_speed).pack(pady=5)
-ttk.Button(root, text="Retrieve Wi-Fi Passwords", command=retrieve_wifi_passwords).pack(pady=5)
+# Tab 3: Wi-Fi & File Management
+wifi_file_tab = ttk.Frame(notebook)
+notebook.add(wifi_file_tab, text="Wi-Fi & File Management")
+
+wifi_file_text = ScrolledText(wifi_file_tab, wrap=tk.WORD, height=15, font=("Helvetica", 12), bg="#f7f7f7")
+wifi_file_text.pack(fill=tk.BOTH, padx=10, pady=10, expand=True)
+
+# Add buttons for retrieving Wi-Fi passwords, checking Wi-Fi speed, and removing temporary files
+ttk.Button(wifi_file_tab, text="Retrieve Wi-Fi Passwords", command=lambda: threading.Thread(target=display_wifi_passwords).start()).pack(pady=10, fill=tk.X)
+ttk.Button(wifi_file_tab, text="Check Wi-Fi Speed", command=lambda: threading.Thread(target=lambda: messagebox.showinfo("Wi-Fi Speed", check_wifi_speed())).start()).pack(pady=10, fill=tk.X)
+ttk.Button(wifi_file_tab, text="Remove Temp Files", command=lambda: threading.Thread(target=handle_remove_temp_files).start()).pack(pady=10, fill=tk.X)
+
+# Display Wi-Fi Passwords function
+def display_wifi_passwords():
+    wifi_passwords = get_wifi_passwords()
+    wifi_file_text.delete(1.0, tk.END)  # Clear the text box
+    if isinstance(wifi_passwords, list):
+        for profile, password in wifi_passwords:
+            wifi_file_text.insert(tk.END, f"Profile: {profile}\nPassword: {password}\n\n")
+    else:
+        wifi_file_text.insert(tk.END, wifi_passwords)  # Display the error message if any
+
+# Handle removal of temporary files
+def handle_remove_temp_files():
+    message = remove_temp_files()
+    wifi_file_text.delete(1.0, tk.END)  # Clear the text box
+
+# Tab 4: Actions
+actions_tab = ttk.Frame(notebook)
+notebook.add(actions_tab, text="Actions")
+
+ttk.Button(actions_tab, text="Shutdown", command=shutdown).pack(pady=10, fill=tk.X)
+ttk.Button(actions_tab, text="Restart", command=restart).pack(pady=10, fill=tk.X)
 
 
-# Text Box to Display Output
-system_info_text = ScrolledText(root, wrap=tk.WORD, width=70, height=15)
-system_info_text.pack(pady=10)
+# Initialize Real-Time Monitoring
+update_graphs()
+check_alerts()
 
-
-# Run the application
 root.mainloop()
