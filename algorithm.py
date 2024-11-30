@@ -19,7 +19,6 @@ from openpyxl.styles import Font, Alignment, PatternFill
 from tkinter import ttk
 
 
-
 def get_system_data():
     # Initialize WMI for hardware information
     w = wmi.WMI()
@@ -42,51 +41,51 @@ def get_system_data():
         serial_number = system_model = system_manufacturer = "N/A"
 
     # Get the Hostname instead of Asset Tag
-    hostname = socket.gethostname()  
+    hostname = socket.gethostname()
 
     # Return data as a dictionary with an added "Number" key
     return {
-        "Number": 1,  
         "Specification": specification,
         "Username (Hostname)": f"{username}",
         "Serial Number": serial_number,
         "System Model": system_model,
         "System Manufacturer": system_manufacturer,
-        "Asset Tag": hostname,  
+        "Asset Tag": hostname,
     }
 
 
 def write_data_to_excel(data, file_name="system_data.xlsx"):
-    # Create workbook and worksheet
-    workbook = openpyxl.Workbook()
+    # Check if the file exists
+    if not os.path.exists(file_name):
+        # Create a new workbook and add headers if the file doesn't exist
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = "System Specifications"
+        header = ["No."] + list(data.keys())
+
+        # Apply header styles
+        header_fill = PatternFill(start_color="00B4F0", end_color="00B4F0", fill_type="solid")
+        header_font = Font(bold=True)
+        alignment = Alignment(horizontal="center", vertical="center")
+
+        for col_idx, header_text in enumerate(header, start=1):
+            cell = sheet.cell(row=1, column=col_idx, value=header_text)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = alignment
+
+        workbook.save(file_name)
+
+    # Load existing workbook and find the next empty row
+    workbook = openpyxl.load_workbook(file_name)
     sheet = workbook.active
-    sheet.title = "System Specifications"
-
-    # Define header and data
-    header = list(data.keys())
-    values = list(data.values())
-
-    # Apply header styles
-    header_fill = PatternFill(start_color="00B4F0", end_color="00B4F0", fill_type="solid")
-    header_font = Font(bold=True)
-    alignment = Alignment(horizontal="center", vertical="center") 
-
-    # Write header
-    for col_idx, header_text in enumerate(header, start=1):
-        cell = sheet.cell(row=1, column=col_idx, value=header_text)
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = alignment
+    next_row = sheet.max_row + 1
 
     # Write data
-    for col_idx, value in enumerate(values, start=1):
-        cell = sheet.cell(row=2, column=col_idx, value=value)
-        cell.alignment = alignment  # Center-align text
-
-    # Adjust column widths
-    for col_idx, width in enumerate([10, 30, 30, 25, 25, 25, 25], start=1):
-        col_letter = openpyxl.utils.get_column_letter(col_idx)
-        sheet.column_dimensions[col_letter].width = width
+    sheet.cell(row=next_row, column=1, value=next_row - 1)  # No. column
+    for col_idx, value in enumerate(data.values(), start=2):
+        cell = sheet.cell(row=next_row, column=col_idx, value=value)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
 
     # Save the workbook
     workbook.save(file_name)
@@ -99,6 +98,7 @@ if __name__ == "__main__":
 
     # Write to Excel
     write_data_to_excel(system_data)
+
 
 
 def get_wmi_info(wmi_class, attributes):
