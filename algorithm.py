@@ -1,22 +1,77 @@
 import os
+import openpyxl
+import speedtest
+import math
 import psutil
 import tkinter as tk
 from tkinter import ttk, messagebox
 from tkinter.scrolledtext import ScrolledText
 import threading
-import speedtest
 import platform
 import socket
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import openpyxl
 import getpass
 import wmi  
-import math
 import subprocess
 from tkinter import messagebox
 from openpyxl.styles import Font, Alignment, PatternFill
 from tkinter import ttk
+
+
+# Shutdown and Restart
+def shutdown():
+    os.system("shutdown /s /t 1")
+
+def restart():
+    os.system("shutdown /r /t 1")
+
+
+# Function to Test Wi-Fi Speed
+def test_wifi_speed():
+    wifi_speed = None
+    try:
+        st = speedtest.Speedtest()
+        st.get_best_server()
+        download_speed = st.download() / 1_000_000  
+        upload_speed = st.upload() / 1_000_000  
+        ping = st.results.ping
+        wifi_speed = f"Download: {download_speed:.2f} Mbps\nUpload: {upload_speed:.2f} Mbps\nPing: {ping} ms"
+    except Exception as e:
+        wifi_speed = f"Error testing speed: {e}"
+
+    return wifi_speed
+
+
+# Display Wi-Fi Speed Test Results
+def display_wifi_speed():
+    speed = test_wifi_speed()
+    actions_tab.delete(1.0, tk.END) 
+    actions_tab.insert(tk.END, speed)
+
+
+# Retrieve Wi-Fi Passwords (Windows Only)
+def get_wifi_passwords():
+    wifi_passwords = []
+    
+    try:
+        profiles = subprocess.check_output("netsh wlan show profiles").decode("utf-8", errors="backslashreplace").split('\n')
+        profile_names = [i.split(":")[1][1:-1] for i in profiles if "All User Profile" in i]
+
+        for profile in profile_names:
+            try:
+                password_info = subprocess.check_output(f'netsh wlan show profile "{profile}" key=clear', shell=True).decode("utf-8", errors="backslashreplace")
+                password = [i.split(":")[1][1:-1] for i in password_info.split("\n") if "Key Content" in i]
+                if password:
+                    wifi_passwords.append((profile, password[0]))
+            except subprocess.CalledProcessError:
+                wifi_passwords.append((profile, "No password set"))
+    
+        if not wifi_passwords:
+            return "No Wi-Fi profiles found."
+        return wifi_passwords
+    except Exception as e:
+        return f"Error retrieving Wi-Fi passwords: {e}"
 
 
 def get_system_data():
@@ -149,7 +204,6 @@ def get_os_info():
     return os_info
 
 
-
 def get_processor_info():
     """
     Retrieve processor information using WMI and platform.
@@ -239,63 +293,6 @@ def print_system_info(info):
     print("\nSystem Information:")
     for key, value in info.items():
         print(f"{key}: {value}")
-
-
-# Function to Test Wi-Fi Speed
-def test_wifi_speed():
-    wifi_speed = None
-    try:
-        st = speedtest.Speedtest()
-        st.get_best_server()
-        download_speed = st.download() / 1_000_000  
-        upload_speed = st.upload() / 1_000_000  
-        ping = st.results.ping
-        wifi_speed = f"Download: {download_speed:.2f} Mbps\nUpload: {upload_speed:.2f} Mbps\nPing: {ping} ms"
-    except Exception as e:
-        wifi_speed = f"Error testing speed: {e}"
-
-    return wifi_speed
-
-
-# Display Wi-Fi Speed Test Results
-def display_wifi_speed():
-    speed = test_wifi_speed()
-    actions_tab.delete(1.0, tk.END) 
-    actions_tab.insert(tk.END, speed)
-
-
-# Retrieve Wi-Fi Passwords (Windows Only)
-def get_wifi_passwords():
-    wifi_passwords = []
-    
-    try:
-        profiles = subprocess.check_output("netsh wlan show profiles").decode("utf-8", errors="backslashreplace").split('\n')
-        profile_names = [i.split(":")[1][1:-1] for i in profiles if "All User Profile" in i]
-
-        for profile in profile_names:
-            try:
-                password_info = subprocess.check_output(f'netsh wlan show profile "{profile}" key=clear', shell=True).decode("utf-8", errors="backslashreplace")
-                password = [i.split(":")[1][1:-1] for i in password_info.split("\n") if "Key Content" in i]
-                if password:
-                    wifi_passwords.append((profile, password[0]))
-            except subprocess.CalledProcessError:
-                wifi_passwords.append((profile, "No password set"))
-    
-        if not wifi_passwords:
-            return "No Wi-Fi profiles found."
-        return wifi_passwords
-    except Exception as e:
-        return f"Error retrieving Wi-Fi passwords: {e}"
-
-
-
-# Shutdown and Restart
-def shutdown():
-    os.system("shutdown /s /t 1")
-
-
-def restart():
-    os.system("shutdown /r /t 1")
 
 
 # Update Real-Time Graphs
